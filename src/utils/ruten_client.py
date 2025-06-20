@@ -203,4 +203,3 @@ class RutenAPIClient:
         except Exception as e:
             logging.error(f"Verify credentials error: {str(e)}")
             return {'valid': False, 'message': str(e)}
-```
