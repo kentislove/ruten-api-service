@@ -1,3 +1,4 @@
+```python
 import os
 import logging
 import hashlib
@@ -6,8 +7,7 @@ import time
 import requests
 import urllib.parse
 from datetime import datetime
-from typing
-from typing import Dict, Dict, Any, Optional
+from typing import Dict, Any, Optional
 
 class RutenAPIClient:
     """露天拍賣 API 客戶端"""
@@ -204,3 +204,4 @@ class RutenAPIClient:
         except Exception as e:
             logging.error(f"Verify credentials error: {str(e)}")
             return {'valid': False, 'message': str(e)}
+```
