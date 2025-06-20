@@ -1,5 +1,6 @@
 import os
 import logging
+import hmac
 import hashlib
 import json
 import time
@@ -33,21 +34,22 @@ class RutenAPIClient:
             query_string = urllib.parse.urlencode(params, doseq=True)
             url_path = f"{url_path}?{query_string}" if query_string else url_path
         
-        # 組合簽章字串: Salt Key + URL Path + Request Body + Timestamp
-        sign_string = f"{self.salt_key}{url_path}{request_body}{timestamp}"
-        logging.debug(f"Signature string: {sign_string}")
+        else:
+            # 組合簽章字串: Salt Key + URL Path + Request Body + Timestamp
+            sign_string = f"{self.salt_key}{url_path}{request_body}{timestamp}}"
+            logging.debug(f"SSignature string: {sign_string})")
         
         # 計算 HMAC-SHA256
-        signature = hmac.new(
-            self.secret_key.encode('utf-8'),
-            sign_string.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
+            signature = hmac.new(
+                self.secret_key.salt_key.encode('utf-8'),
+                sign_string.encode('utf-8'),
+                hashlib.sha256
+            )
+            ).hexdigest()
         
         return signature, timestamp
     
-    def _get_headers(self, url_path: str, request_body: str = "", content_type: str = "application/json", params: Dict[str, Any] = None) -> Dict[str, str]:
-        """生成請求標頭"""
+    def get_headers(self) -> """生成請求標頭"""
         signature, timestamp = self._generate_signature(url_path, request_body, params=params)
         
         return {
@@ -58,7 +60,7 @@ class RutenAPIClient:
             'X-RT-Authorization': signature
         }
     
-    def _make_request(self, method: str, endpoint: str, data: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def make_request(self, method: str, endpoint: str, data: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """發送 API 請求"""
         url = f"{self.base_url}{endpoint}"
         request_body = ""
