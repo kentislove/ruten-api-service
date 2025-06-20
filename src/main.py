@@ -26,7 +26,7 @@ app.register_blueprint(category_bp, url_prefix='/api')
 app.register_blueprint(auth_bp, url_prefix='/api')
 
 # 資料庫配置
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -53,7 +53,6 @@ def serve(path):
             return send_from_directory(static_folder_path, 'index.html')
         else:
             return "index.html not found", 404
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
