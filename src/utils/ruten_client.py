@@ -1,30 +1,42 @@
 import os
+import logging
 import hashlib
-import hmac
+import json
 import time
 import requests
+import urllib.parse
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing
+from typing import Dict, Dict, Any, Optional
 
 class RutenAPIClient:
     """露天拍賣 API 客戶端"""
     
-    def __init__(self):
+    def __init__(self, api_key: str = None, secret_key: str = None, salt_key: str = None):
         self.base_url = "https://partner.ruten.com.tw"
-        self.api_key = os.getenv('RUTEN_API_KEY')
-        self.secret_key = os.getenv('RUTEN_SECRET_KEY')
-        self.salt_key = os.getenv('RUTEN_SALT_KEY')
+        self.api_key = api_key or os.getenv('RUTEN_API_KEY')
+        self.secret_key = secret_key or os.getenv('RUTEN_SECRET_KEY')
+        self.salt_key = salt_key or os.getenv('RUTEN_SALT_KEY')
         
         if not all([self.api_key, self.secret_key, self.salt_key]):
-            raise ValueError("Missing required environment variables: RUTEN_API_KEY, RUTEN_SECRET_KEY, RUTEN_SALT_KEY")
+            raise ValueError("Missing required credentials: RUTEN_API_KEY, RUTEN_SECRET_KEY, RUTEN_SALT_KEY")
+        
+        # 設置日誌
+        logging.getLogger(__name__).setLevel(logging.DEBUG)
     
-    def _generate_signature(self, url_path: str, request_body: str = "", timestamp: str = None) -> tuple:
+    def _generate_signature(self, url_path: str, request_body: str = "", timestamp: str = None, params: Dict[str, Any] = None) -> tuple:
         """生成 HMAC-SHA256 簽章"""
         if timestamp is None:
             timestamp = str(int(time.time()))
         
+        # 處理查詢參數
+        if params:
+            query_string = urllib.parse.urlencode(params, doseq=True)
+            url_path = f"{url_path}?{query_string}" if query_string else url_path
+        
         # 組合簽章字串: Salt Key + URL Path + Request Body + Timestamp
         sign_string = f"{self.salt_key}{url_path}{request_body}{timestamp}"
+        logging.debug(f"Signature string: {sign_string}")
         
         # 計算 HMAC-SHA256
         signature = hmac.new(
@@ -35,12 +47,12 @@ class RutenAPIClient:
         
         return signature, timestamp
     
-    def _get_headers(self, url_path: str, request_body: str = "", content_type: str = "application/json") -> Dict[str, str]:
+    def _get_headers(self, url_path: str, request_body: str = "", content_type: str = "application/json", params: Dict[str, Any] = None) -> Dict[str, str]:
         """生成請求標頭"""
-        signature, timestamp = self._generate_signature(url_path, request_body)
+        signature, timestamp = self._generate_signature(url_path, request_body, params=params)
         
         return {
-            'Host': 'partner.ruten.com.tw',
+            'Host': 'https://partner.ruten.com.tw',  # 修正為完整 URL
             'Content-Type': content_type,
             'X-RT-Key': self.api_key,
             'X-RT-Timestamp': timestamp,
@@ -52,11 +64,11 @@ class RutenAPIClient:
         url = f"{self.base_url}{endpoint}"
         request_body = ""
         
-        if data:
-            import json
+        if data and len(data) > 0:  # 僅當 data 非空時序列化
             request_body = json.dumps(data, ensure_ascii=False)
         
-        headers = self._get_headers(endpoint, request_body)
+        headers = self._get_headers(endpoint, request_body, params=params)
+        logging.debug(f"Ruten API request: {method} {url}, headers={headers}, body={request_body}, params={params}")
         
         try:
             if method.upper() == 'GET':
@@ -71,14 +83,23 @@ class RutenAPIClient:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            logging.debug(f"Ruten API response: status={response.status_code}, body={result}")
+            return result
             
         except requests.exceptions.RequestException as e:
-            return {
+            error_response = {
                 'error': True,
                 'message': str(e),
                 'status_code': getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
             }
+            if hasattr(e, 'response') and e.response:
+                try:
+                    error_response['response_body'] = e.response.text
+                except:
+                    pass
+            logging.error(f"Ruten API error: {error_response}")
+            return error_response
     
     # 商品相關 API
     def get_products(self, page: int = 1, page_size: int = 30) -> Dict[str, Any]:
@@ -147,7 +168,7 @@ class RutenAPIClient:
     def cancel_order(self, order_id: str, reason: str) -> Dict[str, Any]:
         """取消訂單"""
         data = {'order_id': order_id, 'reason': reason}
-        return self._make_request('POST', '/api/v1/order/canceluse', data=data)
+        return self._make_request('POST', '/api/v1/order/cancel', data=data)
     
     def refund_order(self, order_id: str, refund_data: Dict[str, Any]) -> Dict[str, Any]:
         """訂單退款"""
@@ -175,11 +196,11 @@ class RutenAPIClient:
     def verify_credentials(self) -> Dict[str, Any]:
         """驗證 API 憑證"""
         try:
-            # 嘗試呼叫一個簡單的 API 來驗證憑證
             result = self.get_categories()
+            logging.debug(f"Verify credentials response: {result}")
             if 'error' in result:
                 return {'valid': False, 'message': result.get('message', 'Unknown error')}
             return {'valid': True, 'message': 'Credentials are valid'}
         except Exception as e:
+            logging.error(f"Verify credentials error: {str(e)}")
             return {'valid': False, 'message': str(e)}
-
