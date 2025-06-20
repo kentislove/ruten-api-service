@@ -36,7 +36,7 @@ class RutenAPIClient:
         
         else:
             # 組合簽章字串: Salt Key + URL Path + Request Body + Timestamp
-            sign_string = f"{self.salt_key}{url_path}{request_body}{timestamp}}"
+            sign_string = f"{self.salt_key}{url_path}{request_body}{timestamp}"
             logging.debug(f"SSignature string: {sign_string})")
         
         # 計算 HMAC-SHA256
