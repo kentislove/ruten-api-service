@@ -7,6 +7,7 @@ import time
 import requests
 import urllib.parse
 from typing import Dict, Any
+from datetime import datetime
 
 class RutenAPIClient:
     """露天拍賣 API 客戶端 - 僅限查詢商品相關功能"""
@@ -23,6 +24,25 @@ class RutenAPIClient:
         # 設置日誌
         logging.getLogger(__name__).setLevel(logging.DEBUG)
         logging.debug(f"Initialized with api_key={self.api_key[:8]}..., secret_key={self.secret_key[:8]}..., salt_key={self.salt_key}")
+        
+        # 檢查本地系統時間
+        self._check_system_time()
+    
+    def _check_system_time(self) -> None:
+        """檢查本地系統時間是否合理同步"""
+        try:
+            # 使用公開時間伺服器檢查本地時間（例如 time.google.com）
+            response = requests.get('http://worldtimeapi.org/api/timezone/Asia/Taipei', timeout=5)
+            if response.status_code == 200:
+                server_time = datetime.fromisoformat(response.json()['datetime'].replace('Z', '+00:00'))
+                local_time = datetime.utcnow()
+                time_diff = abs((server_time - local_time).total_seconds())
+                if time_diff > 300:  # 5 分鐘的時間差
+                    logging.warning(f"Local system time may be out of sync. Difference with server time: {time_diff} seconds")
+                else:
+                    logging.debug(f"Local system time is synchronized. Difference with server time: {time_diff} seconds")
+        except Exception as e:
+            logging.warning(f"Failed to verify system time: {str(e)}")
     
     def _generate_signature(self, url_path: str, request_body: str = "", timestamp: str = None, params: Dict[str, Any] = None) -> tuple:
         """生成 HMAC-SHA256 簽章"""
@@ -64,22 +84,26 @@ class RutenAPIClient:
         """發送 API 請求"""
         url = f"{self.base_url}{endpoint}"
         request_body = ""
+        local_timestamp = str(int(time.time()))
         
         headers = self._get_headers(endpoint, request_body, params=params)
-        logging.debug(f"Ruten API request: {method} {url}, headers={headers}, params={params}")
+        logging.debug(f"Ruten API request: {method} {url}, headers={headers}, params={params}, local_timestamp={local_timestamp}")
         
         try:
             response = requests.get(url, headers=headers, params=params, timeout=30)
+            server_time = response.headers.get('Date', 'Not provided')
+            logging.debug(f"Server time from response header: {server_time}")
             response.raise_for_status()
             result = response.json()
-            logging.debug(f"Ruten API response: status={response.status_code}, body={result}")
+            logging.debug(f"Ruten API response: status={response.status_code}, body={result}, server_time={server_time}")
             if result.get('status') == 'success':
                 logging.info(f"API call successful: endpoint={endpoint}, status={result.get('status')}")
             else:
-                logging.error(f"API call failed: endpoint={endpoint}, status={result.get('status')}, error_code={result.get('error_code')}, error_msg={result.get('error_msg')}")
+                logging.error(f"API call failed: endpoint={endpoint}, status={result.get('status')}, error_code={result.get('error_code')}, error_msg={result.get('error_msg')}, server_time={server_time}")
             return result
             
         except requests.exceptions.RequestException as e:
+            server_time = response.headers.get('Date', 'Not provided') if 'response' in locals() else 'Not available'
             error_response = {
                 'error': True,
                 'message': str(e),
@@ -91,11 +115,11 @@ class RutenAPIClient:
                     error_body = e.response.json()
                     error_response['error_code'] = error_body.get('error_code')
                     error_response['error_msg'] = error_body.get('error_msg')
-                    logging.error(f"Ruten API error: endpoint={endpoint}, status_code={error_response['status_code']}, error_code={error_response['error_code']}, error_msg={error_response['error_msg']}, response_body={error_response['response_body']}")
+                    logging.error(f"Ruten API error: endpoint={endpoint}, status_code={error_response['status_code']}, error_code={error_response['error_code']}, error_msg={error_response['error_msg']}, response_body={error_response['response_body']}, server_time={server_time}, local_timestamp={local_timestamp}")
                 else:
-                    logging.error(f"Ruten API error: endpoint={endpoint}, message={error_response['message']}, no response body available")
+                    logging.error(f"Ruten API error: endpoint={endpoint}, message={error_response['message']}, response_body={error_response['response_body']}, server_time={server_time}, local_timestamp={local_timestamp}")
             except (ValueError, AttributeError):
-                logging.error(f"Ruten API error: endpoint={endpoint}, status_code={error_response['status_code']}, message={error_response['message']}, response_body={error_response['response_body']}")
+                logging.error(f"Ruten API error: endpoint={endpoint}, status_code={error_response['status_code']}, message={error_response['message']}, response_body={error_response['response_body']}, server_time={server_time}, local_timestamp={local_timestamp}")
             return error_response
     
     def get_products(self, page: int = 1, page_size: int = 30) -> Dict[str, Any]:
