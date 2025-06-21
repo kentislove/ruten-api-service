@@ -6,11 +6,11 @@ import json
 import time
 import requests
 import urllib.parse
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 
 class RutenAPIClient:
-    """露天拍賣 API 客戶端 - 僅限查詢商品相關功能"""
+    """露天拍賣 API 客戶端 - 包含查詢商品、商品管理與圖片上傳功能"""
     
     def __init__(self, api_key: str = None, secret_key: str = None, salt_key: str = None):
         self.base_url = "https://partner.ruten.com.tw"
@@ -76,17 +76,25 @@ class RutenAPIClient:
             'X-RT-Authorization': signature
         }
     
-    def _make_request(self, method: str, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def _make_request(self, method: str, endpoint: str, params: Dict[str, Any] = None, data: Dict[str, Any] = None, files: Dict[str, Any] = None) -> Dict[str, Any]:
         """發送 API 請求"""
         url = f"{self.base_url}{endpoint}"
-        request_body = ""
+        request_body = json.dumps(data) if data else ""
         local_timestamp = str(int(time.time()))
         
-        headers = self._get_headers(endpoint, request_body, params=params)
-        logging.debug(f"Ruten API 請求：{method} {url}, 標頭={headers}, 參數={params}, 本地時間戳記={local_timestamp}")
+        headers = self._get_headers(endpoint, request_body, content_type="multipart/form-data" if files else "application/json", params=params)
+        logging.debug(f"Ruten API 請求：{method} {url}, 標頭={headers}, 參數={params}, 資料={data}, 本地時間戳記={local_timestamp}")
         
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=30)
+            if method.upper() == 'GET':
+                response = requests.get(url, headers=headers, params=params, timeout=30)
+            elif method.upper() == 'POST':
+                response = requests.post(url, headers=headers, params=params, data=data, files=files, timeout=30)
+            elif method.upper() == 'PUT':
+                response = requests.put(url, headers=headers, params=params, json=data, timeout=30)
+            else:
+                raise ValueError(f"不支持的請求方法：{method}")
+                
             server_time = response.headers.get('Date', '未提供')
             cloudflare_ray_id = response.headers.get('CF-Ray', '未提供')
             logging.debug(f"伺服器時間（來自回應標頭）：{server_time}, Cloudflare Ray ID：{cloudflare_ray_id}")
@@ -139,6 +147,38 @@ class RutenAPIClient:
         if result.get('status') == 'success' and not result.get('data'):
             logging.info(f"未找到商品：商品ID={item_id}")
         return result
+    
+    def get_item_id_by_custom_no(self, custom_no: str) -> Dict[str, Any]:
+        """根據自訂編號取得商品ID"""
+        params = {'custom_no': custom_no}
+        result = self._make_request('GET', '/api/v1/product/item_id', params=params)
+        if result.get('status') == 'success' and not result.get('data'):
+            logging.info(f"未找到商品：自訂編號={custom_no}")
+        return result
+    
+    def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """創建新商品"""
+        return self._make_request('POST', '/api/v1/product/item', data=product_data)
+    
+    def update_product_stock(self, item_id: str, qty: int) -> Dict[str, Any]:
+        """更新商品庫存"""
+        data = {'item_id': item_id, 'qty': qty}
+        return self._make_request('PUT', '/api/v1/product/item/stock', data=data)
+    
+    def upload_product_image(self, item_id: str, image_paths: List[str]) -> Dict[str, Any]:
+        """上傳商品圖片"""
+        data = {'item_id': item_id}
+        files = {}
+        for index, file_path in enumerate(image_paths):
+            if not os.path.exists(file_path):
+                logging.error(f"圖片檔案不存在：{file_path}")
+                return {'error': True, 'message': f"圖片檔案不存在：{file_path}"}
+            files[f'images[{index}]'] = (
+                os.path.basename(file_path),
+                open(file_path, 'rb'),
+                mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+            )
+        return self._make_request('POST', '/api/v1/product/item/image', data=data, files=files)
     
     def verify_credentials(self) -> Dict[str, Any]:
         """驗證 API 憑證"""
