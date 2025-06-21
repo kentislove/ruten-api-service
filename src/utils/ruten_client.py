@@ -15,7 +15,7 @@ class RutenAPIClient:
     def __init__(self, api_key: str = None, secret_key: str = None, salt_key: str = None):
         self.base_url = "https://partner.ruten.com.tw"
         self.api_key = api_key or os.getenv('RUTEN_API_KEY')
-        self.secret_key = secret_key or os.getenv('RUTEN_SALT_KEY')  # 修正: 應為 RUTEN_SECRET_KEY
+        self.secret_key = secret_key or os.getenv('RUTEN_SECRET_KEY')  # 修正: 使用 RUTEN_SECRET_KEY
         self.salt_key = salt_key or os.getenv('RUTEN_SALT_KEY')
         
         if not all([self.api_key, self.secret_key, self.salt_key]):
@@ -87,6 +87,12 @@ class RutenAPIClient:
             response.raise_for_status()
             result = response.json()
             logging.debug(f"Ruten API response: status={response.status_code}, body={result}")
+            # 記錄成功回應細節
+            if result.get('status') == 'success':
+                logging.info(f"API call successful: endpoint={endpoint}, status={result.get('status')}")
+            else:
+                # 記錄即使 HTTP 狀態為 200 的非成功 API 回應
+                logging.warning(f"API call returned non-success status: endpoint={endpoint}, status={result.get('status')}, error_code={result.get('error_code')}, error_msg={result.get('error_msg')}")
             return result
             
         except requests.exceptions.RequestException as e:
@@ -96,7 +102,15 @@ class RutenAPIClient:
                 'status_code': getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None,
                 'response_body': getattr(e.response, 'text', 'No response body') if hasattr(e, 'response') else 'No response'
             }
-            logging.error(f"Ruten API error: {error_response}")
+            # 嘗試解析回應主體以獲取 error_code 和 error_msg
+            try:
+                if hasattr(e, 'response') and e.response:
+                    error_body = e.response.json()
+                    error_response['error_code'] = error_body.get('error_code')
+                    error_response['error_msg'] = error_body.get('error_msg')
+            except (ValueError, AttributeError):
+                pass  # 回應非 JSON 格式或不可用
+            logging.error(f"Ruten API error: endpoint={endpoint}, details={error_response}")
             return error_response
     
     # 商品相關 API
